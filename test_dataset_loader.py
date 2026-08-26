@@ -1,10 +1,10 @@
-from epibrant_pretrain_dataset import EpiBRANTPretrainDataset
+from datasets.epibrant_pretrain_dataset import EpiBRANTPretrainDataset
 
 
 
 dataset=EpiBRANTPretrainDataset(
 
-    "global_pretrain_manifest.csv"
+    "/home/ubuntu/Ijaz/Revised code /BrainWae model /SEEG_EpiBRANT500M/global_pretrain_manifest.csv"
 
 )
 

@@ -1,0 +1,213 @@
+
+import os
+import numpy as np
+import mne
+import matplotlib.pyplot as plt
+from scipy import signal
+
+
+# ==========================================================
+# INPUT EDF FILE
+# Change this to your selected recording
+# ==========================================================
+
+
+EDF_FILE = (
+"/home/ubuntu/Ijaz/SEEG datast/"
+"pretrainingdataset/newSEEG data/63/1.edf"
+)
+
+
+OUTPUT = "SEEG_spectrogram_example.png"
+
+
+
+# ==========================================================
+# Load SEEG
+# ==========================================================
+
+
+raw = mne.io.read_raw_edf(
+    EDF_FILE,
+    preload=True,
+    verbose=False
+)
+
+
+fs = raw.info["sfreq"]
+
+
+print("Sampling rate:", fs)
+
+print(
+    "Channels:",
+    len(raw.ch_names)
+)
+
+
+
+# ==========================================================
+# Select SEEG channel
+# First intracranial contact
+# ==========================================================
+
+
+signal_data = raw.get_data()[0]
+
+
+# use first 60 seconds
+
+duration = 60
+
+
+samples = int(
+    duration * fs
+)
+
+
+signal_data = signal_data[:samples]
+
+
+
+# ==========================================================
+# Bandpass filtering
+# ==========================================================
+
+
+signal_data = mne.filter.filter_data(
+    signal_data,
+    sfreq=fs,
+    l_freq=0.5,
+    h_freq=min(120,fs/2-1),
+    verbose=False
+)
+
+
+
+# ==========================================================
+# Spectrogram
+# ==========================================================
+
+
+f,t,Sxx = signal.spectrogram(
+
+    signal_data,
+
+    fs=fs,
+
+    nperseg=int(fs*2),
+
+    noverlap=int(fs),
+
+    scaling="density"
+
+)
+
+
+
+# limit frequency
+
+freq_mask = f <= 120
+
+
+f=f[freq_mask]
+
+Sxx=Sxx[freq_mask]
+
+
+
+Sxx = 10*np.log10(
+    Sxx + 1e-12
+)
+
+
+
+# ==========================================================
+# Plot
+# ==========================================================
+
+
+plt.figure(
+    figsize=(3.4,2.2),
+    dpi=600
+)
+
+
+
+plt.pcolormesh(
+
+    t,
+
+    f,
+
+    Sxx,
+
+    shading="auto",
+
+    cmap="magma"
+
+)
+
+
+
+plt.ylim(
+    0,
+    120
+)
+
+
+plt.xlim(
+    0,
+    60
+)
+
+
+
+plt.xlabel(
+    "Time (s)",
+    fontsize=7
+)
+
+
+plt.ylabel(
+    "Frequency (Hz)",
+    fontsize=7
+)
+
+
+
+plt.xticks(
+    fontsize=6
+)
+
+
+plt.yticks(
+    fontsize=6
+)
+
+
+
+plt.colorbar(
+    pad=0.02,
+    fraction=0.04
+)
+
+
+
+plt.tight_layout()
+
+
+
+plt.savefig(
+    OUTPUT,
+    dpi=600,
+    bbox_inches="tight"
+)
+
+
+
+print(
+    "Saved:",
+    OUTPUT
+)
+
