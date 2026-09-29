@@ -339,7 +339,10 @@ Install dependencies:
 bash
 pip install -r requirements.txt
 
-
+Pretrained Model
+The pretrained EpiBRANT checkpoint is available at:
+Hugging Face
+https://huggingface.co/ijaz0310/EpiBRANT
 
 # Citation
 
