@@ -1,523 +1,305 @@
-import os
+import random
 from pathlib import Path
 
-import mne
+import numpy as np
 import pandas as pd
 
+import torch
+from torch.utils.data import Dataset
 
-# ==========================================================
-# PATHS
-# ==========================================================
+import mne
 
-INSTITUTIONAL_SEEG = (
-    "/home/ubuntu/Ijaz/SEEG datast/"
-    "pretrainingdataset/newSEEG data"
-)
 
 
-OMNI_SEEG = (
-    "/home/ubuntu/Ijaz/SEEG datast/"
-    "pretrainingdataset/"
-    "seeg-OMNI-seeg FINE TUNE 70 PATEINST"
-)
+class EpiBRANTPretrainDataset(Dataset):
 
+    """
+    BrainWave-style SEEG foundation model pretraining dataset.
 
-OUTPUT = "global_pretrain_manifest.csv"
+    Input:
+        global_pretrain_manifest.csv
 
+    Output:
+        signal:
+            C x T
 
+        fs:
+            native sampling frequency
 
-# ==========================================================
-# Remove auxiliary channels
-# ==========================================================
+        metadata:
+            dataset / subject / recording information
+    """
 
-BAD_KEYWORDS = [
 
-    "ECG",
-    "EKG",
-    "EKG1",
-    "EMG",
-    "EOG",
-    "RESP",
-    "SPO2",
-    "PLETH",
-    "PULSE",
-    "STATUS",
-    "TRIG",
-    "EVENT",
-    "ANNOT"
 
-]
+    def __init__(
+        self,
+        manifest_path,
+        window_seconds=60,
+        min_channels=16
+    ):
 
+        self.df = pd.read_csv(
+            manifest_path
+        )
 
 
-def select_seeg_channels(channels):
+        self.window_seconds = window_seconds
 
-    keep=[]
-    removed=[]
+        self.min_channels = min_channels
 
 
-    for ch in channels:
 
-        flag=False
+        # remove very short recordings
 
+        self.df = self.df[
+            self.df.duration_seconds >= window_seconds
+        ].reset_index(drop=True)
 
-        for key in BAD_KEYWORDS:
 
-            if key.lower() in ch.lower():
 
-                flag=True
-                break
+        print("======================")
+        print("EpiBRANT Dataset")
+        print("======================")
 
-
-        if flag:
-
-            removed.append(ch)
-
-        else:
-
-            keep.append(ch)
-
-
-
-    return keep, removed
-
-
-
-
-# ==========================================================
-# EDF analysis
-# ==========================================================
-
-
-def analyze_edf(edf_file):
-
-
-    raw = mne.io.read_raw_edf(
-
-        edf_file,
-
-        preload=False,
-
-        verbose=False,
-
-        encoding="latin1",
-
-        infer_types=True
-
-    )
-
-
-    fs=float(
-        raw.info["sfreq"]
-    )
-
-
-    duration=float(
-        raw.n_times/fs
-    )
-
-
-    channels=raw.ch_names
-
-
-    seeg_channels, removed_channels = (
-        select_seeg_channels(channels)
-    )
-
-
-    return {
-
-
-        "sampling_rate":
-
-            fs,
-
-
-        "duration_seconds":
-
-            duration,
-
-
-        "duration_hours":
-
-            duration/3600,
-
-
-        "total_channels":
-
-            len(channels),
-
-
-        "seeg_channels":
-
-            len(seeg_channels),
-
-
-        "removed_channels":
-
-            len(removed_channels),
-
-
-        "seeg_channel_names":
-
-            ";".join(seeg_channels),
-
-
-        "removed_channel_names":
-
-            ";".join(removed_channels)
-
-    }
-
-
-
-
-# ==========================================================
-# Institutional SEEG
-#
-# /newSEEG data/
-#
-#       63/
-#          1.edf
-#
-# ==========================================================
-
-
-def collect_institutional():
-
-
-    records=[]
-
-
-    files=list(
-        Path(INSTITUTIONAL_SEEG)
-        .rglob("*.edf")
-    )
-
-
-    print(
-        "Institutional EDF:",
-        len(files)
-    )
-
-
-    for edf in files:
+        print(
+            "Recordings:",
+            len(self.df)
+        )
 
 
         print(
-            "Processing:",
-            edf
+            "Subjects:",
+            self.df.subject_id.nunique()
         )
 
 
-        info=analyze_edf(
-            str(edf)
+
+    def __len__(self):
+
+        return len(self.df)
+
+
+
+    def select_seeg_channels(
+        self,
+        raw,
+        channel_names
+    ):
+
+
+        available = []
+
+
+        for ch in channel_names:
+
+            if ch in raw.ch_names:
+
+                available.append(ch)
+
+
+
+        return available
+
+
+
+    def normalize(
+        self,
+        x
+    ):
+
+        """
+        Channel-wise z-score
+
+        x:
+            C x T
+        """
+
+        mean = np.mean(
+            x,
+            axis=1,
+            keepdims=True
         )
 
 
-        subject_id = edf.parent.name
+        std = np.std(
+            x,
+            axis=1,
+            keepdims=True
+        )
 
 
-        session_id = edf.stem
+        x = (
+            x - mean
+        ) / (
+            std + 1e-6
+        )
 
 
-
-        records.append({
-
-
-            "dataset":
-                "Institutional_SEEG",
-
-
-            "subject_id":
-                subject_id,
-
-
-            "session_id":
-                session_id,
-
-
-            "recording_id":
-                edf.stem,
-
-
-            "file":
-                str(edf),
-
-
-            **info
-
-
-        })
+        return x
 
 
 
-    return records
+    def __getitem__(
+        self,
+        index
+    ):
+
+
+        row = self.df.iloc[index]
 
 
 
-
-# ==========================================================
-# Omni-iEEG
-#
-# BIDS:
-#
-# sub-XXX/
-#       ses-XXX/
-#              ieeg/
-#                 *.edf
-#
-# ==========================================================
-
-
-def extract_bids_information(edf):
-
-
-    subject_id=None
-
-    session_id=None
+        filepath = row["file"]
 
 
 
-    for parent in edf.parents:
+        fs = int(
+            row["sampling_rate"]
+        )
 
 
-        name=parent.name
+
+        # ------------------------------------------------
+        # Load EDF
+        # ------------------------------------------------
+
+
+        raw = mne.io.read_raw_edf(
+
+            filepath,
+
+            preload=False,
+
+            verbose=False,
+
+            encoding="latin1"
+
+        )
 
 
 
-        if name.startswith("sub-"):
+        # ------------------------------------------------
+        # Select SEEG channels
+        # ------------------------------------------------
 
 
-            subject_id=name.replace(
-                "sub-",
-                ""
+        seeg_names = row[
+            "seeg_channel_names"
+        ].split(";")
+
+
+
+        seeg_names = self.select_seeg_channels(
+            raw,
+            seeg_names
+        )
+
+
+
+        if len(seeg_names) < self.min_channels:
+
+            raise RuntimeError(
+                f"Too few SEEG channels: {filepath}"
             )
 
 
-        if name.startswith("ses-"):
 
-
-            session_id=name
-
-
-
-    if subject_id is None:
-
-
-        raise RuntimeError(
-            f"Cannot extract subject from {edf}"
-        )
-
-
-    if session_id is None:
-
-        session_id="unknown"
-
-
-
-    return subject_id, session_id
-
-
-
-
-
-def collect_omni():
-
-
-    records=[]
-
-
-    files=list(
-        Path(OMNI_SEEG)
-        .rglob("*.edf")
-    )
-
-
-    print(
-        "Omni EDF:",
-        len(files)
-    )
-
-
-
-    for edf in files:
-
-
-        print(
-            "Processing:",
-            edf
+        raw.pick(
+            seeg_names
         )
 
 
 
-        info=analyze_edf(
-            str(edf)
+        total_samples = raw.n_times
+
+
+
+        window_samples = (
+            self.window_seconds * fs
         )
 
 
 
-        subject_id, session_id = (
-            extract_bids_information(edf)
+        # ------------------------------------------------
+        # Random 60 sec crop
+        # ------------------------------------------------
+
+
+        start = random.randint(
+
+            0,
+
+            total_samples - window_samples
+
+        )
+
+
+        stop = (
+            start + window_samples
         )
 
 
 
-        records.append({
+        signal = raw.get_data(
+
+            start=start,
+
+            stop=stop
+
+        )
+
+
+
+        # C x T
+
+        signal = self.normalize(
+            signal
+        )
+
+
+
+        signal = torch.tensor(
+
+            signal,
+
+            dtype=torch.float32
+
+        )
+
+
+
+        return {
+
+
+            "signal":
+
+                signal,
+
+
+            "sampling_rate":
+
+                fs,
 
 
             "dataset":
 
-                "Omni_iEEG_SEEG",
-
+                row["dataset"],
 
 
             "subject_id":
 
-                subject_id,
-
+                row["subject_id"],
 
 
             "session_id":
 
-                session_id,
-
+                row["session_id"],
 
 
             "recording_id":
 
-                edf.stem,
+                row["recording_id"]
 
 
-
-            "file":
-
-                str(edf),
-
-
-
-            **info
-
-
-        })
-
-
-
-    return records
-
-
-
-
-
-# ==========================================================
-# MAIN
-# ==========================================================
-
-
-if __name__=="__main__":
-
-
-
-    records=[]
-
-
-
-    records.extend(
-        collect_institutional()
-    )
-
-
-    records.extend(
-        collect_omni()
-    )
-
-
-
-    df=pd.DataFrame(records)
-
-
-
-    # Remove very short recordings
-
-    before=len(df)
-
-
-    df=df[
-        df.duration_seconds > 10
-    ]
-
-
-    print(
-        "Removed recordings:",
-        before-len(df)
-    )
-
-
-
-    # Save
-
-    df.to_csv(
-
-        OUTPUT,
-
-        index=False
-
-    )
-
-
-
-    print("\n========================")
-
-    print("GLOBAL MANIFEST")
-
-    print("========================")
-
-
-    print(df.head())
-
-
-
-    print("\nDataset distribution")
-
-    print(
-        df.dataset.value_counts()
-    )
-
-
-
-    print("\nSubjects")
-
-    print(
-        df.groupby(
-            "dataset"
-        )
-        .subject_id
-        .nunique()
-    )
-
-
-
-    print("\nSessions")
-
-    print(
-        df.groupby(
-            "dataset"
-        )
-        .session_id
-        .nunique()
-    )
-
-
-
-    print("\nTotal hours")
-
-    print(
-        df.duration_hours.sum()
-    )
-
-
-    print("\nSaved:")
-
-    print(
-        OUTPUT
-    )
+        }
