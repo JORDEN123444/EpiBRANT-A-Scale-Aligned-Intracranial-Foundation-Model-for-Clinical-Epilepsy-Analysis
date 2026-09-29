@@ -62,64 +62,7 @@ Pretrained SEEG foundation encoder
 
 ```
 
-EpiBRANT500M/
 
-│
-├── configs/
-│   └── Model and training configurations
-│
-├── datasets/
-│   ├── Dataset loading pipeline
-│   ├── Pretraining dataset implementation
-│   └── Data validation scripts
-│
-├── models/
-│   ├── EpiBRANT backbone architecture
-│   ├── Scale alignment module
-│   ├── Temporal encoder
-│   ├── Channel attention encoder
-│   └── Reconstruction decoder
-│
-├── preprocessing/
-│   └── Signal preprocessing utilities
-│
-├── scripts/
-│   ├── Dataset analysis
-│   ├── Global manifest generation
-│   ├── Quality control
-│   ├── Spectrogram visualization
-│   └── Training utilities
-│
-├── checkpoints/
-│   └── Model checkpoints
-│
-├── losses/
-│   └── Masked reconstruction objectives
-│
-└── results/
-└── Training outputs and evaluation results
-
-````
-
----
-
-# Pretraining Dataset Preparation
-
-## 1. Dataset Quality Analysis
-
-Before pretraining, all SEEG recordings are analyzed to obtain:
-
-- sampling frequency,
-- recording duration,
-- channel configuration,
-- SEEG channel identification,
-- auxiliary channel removal.
-
-Run:
-
-```bash
-python scripts/analyze_seeg_dataset.py
-````
 
 The analysis preserves original acquisition characteristics and avoids unnecessary resampling.
 
